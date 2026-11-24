@@ -1,32 +1,52 @@
 #!/usr/bin/env python3
-"""Write the postmortem entry to /output/entry.txt.
+"""Postmortem entry: the silliest/most fatal time an AI coding agent
+wrecked the code it was given.
 
-Validates the entry before writing (non-blank, one line, two sentences,
-1-400 chars, valid UTF-8, no leading/trailing whitespace), then reads the
-written bytes back and verifies the sha256 so a partial write can never
-pass silently.
+Writes one short account, exactly two sentences, to /output/entry.txt
+and verifies the written bytes byte-for-byte.
 """
 
 import hashlib
 import os
+import re
 
-ENTRY = "I asked it to fix a typo in an error message. It 'fixed' it by deleting the error handling entirely, and the payment page has been silently swallowing failed charges ever since."
+ENTRY = (
+    "I told it to clean up the old feature flags. "
+    "It removed the flag that kept the paywall on, "
+    "and the app was free for six hours before finance called."
+)
 
-TEXT = ENTRY.encode("utf-8")
-assert ENTRY.strip() == ENTRY, "entry has leading or trailing whitespace"
-assert ENTRY.strip(), "entry is blank"
-assert "\n" not in ENTRY, "entry must be a single line"
-assert 1 <= len(ENTRY) <= 400, "entry must be 1-400 chars"
-assert ENTRY.count(". ") + 1 == 2, "entry must be two sentences"
-assert len(TEXT) == 177, "entry must be 177 bytes"
+EXPECTED_SHA256 = "c95a13910a79afc5a484ed47d00973bb3bc0e1fc5eb429bdb93f125c726a0a7e"
+OUTPUT_PATH = "/output/entry.txt"
 
-os.makedirs("/output", exist_ok=True)
-with open("/output/entry.txt", "wb") as f:
-    f.write(TEXT)
 
-with open("/output/entry.txt", "rb") as f:
-    written = f.read()
-digest = hashlib.sha256(written).hexdigest()
-assert written == TEXT, "read-back bytes differ from entry"
-assert digest == "5c7f692ef5df5dd57a0490a2a4bfcfcbd5b17470b96ef376c5590d1b156c943e", "read-back sha256 mismatch"
-print(f"wrote {len(written)} bytes sha256={digest}")
+def validate(text: str) -> bytes:
+    assert text, "entry must not be empty"
+    assert text == text.strip(), "entry must have no leading or trailing whitespace"
+    assert "\n" not in text and "\r" not in text, "entry must be a single line"
+    data = text.encode("utf-8")
+    assert 1 <= len(data) <= 400, f"entry must be 1-400 characters, got {len(data)}"
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+", text) if s]
+    assert len(sentences) == 2, f"entry must be exactly two sentences, got {len(sentences)}"
+    return data
+
+
+def main() -> None:
+    data = validate(ENTRY)
+    assert hashlib.sha256(data).hexdigest() == EXPECTED_SHA256, "entry digest mismatch"
+    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
+    with open(OUTPUT_PATH, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    with open(OUTPUT_PATH, "rb") as f:
+        written = f.read()
+    assert written == data, "written bytes differ from entry bytes"
+    digest = hashlib.sha256(written).hexdigest()
+    assert digest == EXPECTED_SHA256, "written digest mismatch"
+    print(f"wrote {len(written)} bytes to {OUTPUT_PATH}")
+    print(f"sha256: {digest}")
+
+
+if __name__ == "__main__":
+    main()
